@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { ProviderPlugin } from "../../plugins/types.js";
 import type { RuntimeEnv } from "../../runtime.js";
 
 const mocks = vi.hoisted(() => ({
@@ -233,6 +234,38 @@ describe("modelsAuthLoginCommand", () => {
 
     await expect(modelsAuthLoginCommand({ provider: "anthropic" }, runtime)).rejects.toThrow(
       "No provider plugins found.",
+    );
+  });
+
+  it("warns when --profile-alias is used with a plugin provider", async () => {
+    const runtime = createRuntime();
+    const runMethod = vi.fn(async () => ({ profiles: [] }));
+    mocks.resolvePluginProviders.mockReturnValue([
+      {
+        id: "my-plugin",
+        label: "My Plugin",
+        auth: [
+          {
+            id: "oauth",
+            label: "OAuth",
+            kind: "oauth",
+            run: runMethod,
+          },
+        ],
+      } satisfies ProviderPlugin,
+    ]);
+
+    await modelsAuthLoginCommand(
+      {
+        provider: "my-plugin",
+        profileAlias: "Team Billing",
+      },
+      runtime,
+    );
+
+    expect(runMethod).toHaveBeenCalledOnce();
+    expect(runtime.log).toHaveBeenCalledWith(
+      'Warning: --profile-alias is only supported for the built-in openai-codex provider and will be ignored for "my-plugin".',
     );
   });
 

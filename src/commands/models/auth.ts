@@ -392,6 +392,13 @@ export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: Runtim
     throw new Error("Unknown provider. Use --provider <id> to pick a provider plugin.");
   }
 
+  const requestedProfileAlias = opts.profileAlias?.trim();
+  if (requestedProfileAlias) {
+    runtime.log(
+      `Warning: --profile-alias is only supported for the built-in openai-codex provider and will be ignored for "${selectedProvider.id}".`,
+    );
+  }
+
   const chosenMethod =
     pickAuthMethod(selectedProvider, opts.method) ??
     (selectedProvider.auth.length === 1
