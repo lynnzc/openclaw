@@ -311,6 +311,36 @@ describe("waitForDescendantSubagentSummary", () => {
     expect(callGateway).not.toHaveBeenCalled();
   });
 
+  it("skips agent.wait for stale descendants when observedActiveDescendants=true", async () => {
+    vi.useFakeTimers();
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([
+      {
+        runId: "stale-run",
+        childSessionKey: "child-stale",
+        requesterSessionKey: "cron-session",
+        requesterDisplayKey: "cron-session",
+        task: "stale",
+        cleanup: "keep",
+        createdAt: 1_000,
+        startedAt: 1_500,
+      },
+    ]);
+    vi.mocked(readLatestAssistantReply).mockResolvedValue("on it");
+
+    const resultPromise = waitForDescendantSubagentSummary({
+      sessionKey: "cron-session",
+      initialReply: "on it",
+      timeoutMs: 100,
+      observedActiveDescendants: true,
+      runStartedAt: 5_000,
+    });
+
+    const result = await resolveAfterAdvancingTimers(resultPromise);
+
+    expect(result).toBeUndefined();
+    expect(callGateway).not.toHaveBeenCalled();
+  });
+
   it("awaits active descendants via agent.wait and returns synthesis after grace period", async () => {
     // First call: active run; second call (after agent.wait resolves): no active runs
     vi.mocked(listDescendantRunsForRequester)

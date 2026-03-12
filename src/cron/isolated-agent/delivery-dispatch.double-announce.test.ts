@@ -19,7 +19,7 @@ vi.mock("../../agents/subagent-announce.js", () => ({
 }));
 
 vi.mock("../../agents/subagent-registry.js", () => ({
-  countActiveDescendantRuns: vi.fn().mockReturnValue(0),
+  listDescendantRunsForRequester: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock("../../config/sessions.js", () => ({
@@ -60,7 +60,7 @@ vi.mock("./subagent-followup.js", () => ({
 
 import { runSubagentAnnounceFlow } from "../../agents/subagent-announce.js";
 // Import after mocks
-import { countActiveDescendantRuns } from "../../agents/subagent-registry.js";
+import { listDescendantRunsForRequester } from "../../agents/subagent-registry.js";
 import { shouldEnqueueCronMainSummary } from "../heartbeat-policy.js";
 import { dispatchCronDelivery } from "./delivery-dispatch.js";
 import type { DeliveryTargetResolution } from "./delivery-target.js";
@@ -112,8 +112,8 @@ function makeBaseParams(overrides: { synthesizedText?: string; deliveryRequested
     agentId: "main",
     agentSessionKey: "agent:main",
     runSessionId: "run-123",
-    runStartedAt: Date.now(),
-    runEndedAt: Date.now(),
+    runStartedAt: 10_000,
+    runEndedAt: 12_000,
     timeoutMs: 30_000,
     resolvedDelivery,
     deliveryRequested: overrides.deliveryRequested ?? true,
@@ -140,7 +140,7 @@ function makeBaseParams(overrides: { synthesizedText?: string; deliveryRequested
 describe("dispatchCronDelivery — double-announce guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([]);
     vi.mocked(expectsSubagentFollowup).mockReturnValue(false);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
     vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(undefined);
@@ -149,8 +149,19 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("early return (active subagent) sets deliveryAttempted=true so timer skips enqueueSystemEvent", async () => {
-    // countActiveDescendantRuns returns >0 → enters wait block; still >0 after wait → early return
-    vi.mocked(countActiveDescendantRuns).mockReturnValue(2);
+    // Active descendants in the current run window keep suppression active after waiting.
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([
+      {
+        runId: "active-run",
+        childSessionKey: "child-active",
+        requesterSessionKey: "agent:main",
+        requesterDisplayKey: "agent:main",
+        task: "active task",
+        cleanup: "keep",
+        createdAt: 9_500,
+        startedAt: 10_100,
+      },
+    ]);
     vi.mocked(waitForDescendantSubagentSummary).mockResolvedValue(undefined);
     vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(undefined);
 
@@ -177,10 +188,21 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("early return (stale interim suppression) sets deliveryAttempted=true so timer skips enqueueSystemEvent", async () => {
-    // First countActiveDescendantRuns call returns >0 (had descendants), second returns 0
-    vi.mocked(countActiveDescendantRuns)
-      .mockReturnValueOnce(2) // initial check → hadDescendants=true, enters wait block
-      .mockReturnValueOnce(0); // second check after wait → activeSubagentRuns=0
+    // First check sees active descendants in this run; second check sees none.
+    vi.mocked(listDescendantRunsForRequester)
+      .mockReturnValueOnce([
+        {
+          runId: "active-run",
+          childSessionKey: "child-active",
+          requesterSessionKey: "agent:main",
+          requesterDisplayKey: "agent:main",
+          task: "active task",
+          cleanup: "keep",
+          createdAt: 9_000,
+          startedAt: 10_200,
+        },
+      ])
+      .mockReturnValueOnce([]);
     vi.mocked(waitForDescendantSubagentSummary).mockResolvedValue(undefined);
     vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(undefined);
     // synthesizedText matches initialSynthesizedText & isLikelyInterimCronMessage → stale interim
@@ -209,7 +231,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("normal announce success delivers exactly once and sets deliveryAttempted=true", async () => {
-    vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([]);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
     vi.mocked(runSubagentAnnounceFlow).mockResolvedValue(true);
 
@@ -235,7 +257,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("announce failure falls back to direct delivery exactly once (no double-deliver)", async () => {
-    vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([]);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
     // Announce fails: runSubagentAnnounceFlow returns false
     vi.mocked(runSubagentAnnounceFlow).mockResolvedValue(false);
@@ -256,6 +278,30 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     // Direct fallback fired exactly once (not zero, not twice)
     // This ensures one delivery total reaches the user, not two
     expect(deliverOutboundPayloads).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores stale descendants outside run window and does not enter wait path", async () => {
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([
+      {
+        runId: "stale-run",
+        childSessionKey: "child-stale",
+        requesterSessionKey: "agent:main",
+        requesterDisplayKey: "agent:main",
+        task: "stale task",
+        cleanup: "keep",
+        createdAt: 1_000,
+        startedAt: 1_500,
+      },
+    ]);
+    vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
+    vi.mocked(runSubagentAnnounceFlow).mockResolvedValue(true);
+
+    const params = makeBaseParams({ synthesizedText: "Morning briefing complete." });
+    const state = await dispatchCronDelivery(params);
+
+    expect(waitForDescendantSubagentSummary).not.toHaveBeenCalled();
+    expect(runSubagentAnnounceFlow).toHaveBeenCalledTimes(1);
+    expect(state.delivered).toBe(true);
   });
 
   it("no delivery requested means deliveryAttempted stays false and runSubagentAnnounceFlow not called", async () => {

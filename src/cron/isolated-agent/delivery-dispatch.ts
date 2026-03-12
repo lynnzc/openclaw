@@ -1,5 +1,5 @@
 import { runSubagentAnnounceFlow } from "../../agents/subagent-announce.js";
-import { countActiveDescendantRuns } from "../../agents/subagent-registry.js";
+import { listDescendantRunsForRequester } from "../../agents/subagent-registry.js";
 import { SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { createOutboundSendDeps, type CliDeps } from "../../cli/outbound-send-deps.js";
@@ -37,6 +37,23 @@ function normalizeDeliveryTarget(channel: string, to: string): string {
     }
   }
   return toTrimmed;
+}
+
+function countActiveDescendantRunsInRunWindow(params: {
+  rootSessionKey: string;
+  runStartedAt: number;
+}): number {
+  const runStartedAt = Number.isFinite(params.runStartedAt) ? params.runStartedAt : undefined;
+  return listDescendantRunsForRequester(params.rootSessionKey).filter((entry) => {
+    if (typeof entry.endedAt === "number") {
+      return false;
+    }
+    if (runStartedAt === undefined) {
+      return true;
+    }
+    const startedAt = typeof entry.startedAt === "number" ? entry.startedAt : entry.createdAt;
+    return startedAt >= runStartedAt;
+  }).length;
 }
 
 export function matchesMessagingToolDeliveryTarget(
@@ -273,7 +290,10 @@ export async function dispatchCronDelivery(
         ? params.job.name.trim()
         : `cron:${params.job.id}`;
     const initialSynthesizedText = synthesizedText.trim();
-    let activeSubagentRuns = countActiveDescendantRuns(params.agentSessionKey);
+    let activeSubagentRuns = countActiveDescendantRunsInRunWindow({
+      rootSessionKey: params.agentSessionKey,
+      runStartedAt: params.runStartedAt,
+    });
     const expectedSubagentFollowup = expectsSubagentFollowup(initialSynthesizedText);
     // Also check for already-completed descendants. If the subagent finished
     // before delivery-dispatch runs, activeSubagentRuns is 0 and
@@ -296,7 +316,10 @@ export async function dispatchCronDelivery(
         observedActiveDescendants: activeSubagentRuns > 0 || expectedSubagentFollowup,
         runStartedAt: params.runStartedAt,
       });
-      activeSubagentRuns = countActiveDescendantRuns(params.agentSessionKey);
+      activeSubagentRuns = countActiveDescendantRunsInRunWindow({
+        rootSessionKey: params.agentSessionKey,
+        runStartedAt: params.runStartedAt,
+      });
       if (!finalReply && activeSubagentRuns === 0) {
         finalReply = await readDescendantSubagentFallbackReply({
           sessionKey: params.agentSessionKey,
