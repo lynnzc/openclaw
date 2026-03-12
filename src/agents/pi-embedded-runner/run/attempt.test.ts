@@ -10,6 +10,7 @@ import {
   resolveOllamaCompatNumCtxEnabled,
   resolvePromptBuildHookResult,
   resolvePromptModeForSession,
+  shouldNormalizeKimiXmlToolCalls,
   shouldInjectOllamaCompatNumCtx,
   decodeHtmlEntitiesInObject,
   wrapOllamaCompatNumCtx,
@@ -556,6 +557,85 @@ describe("wrapStreamFnNormalizeKimiXmlToolCalls", () => {
     const result = await stream.result();
 
     expect((result as { content: unknown[] }).content).toEqual([{ type: "text", text }]);
+  });
+
+  it("does not convert invoke snippets outside function_calls blocks", async () => {
+    const text = `<function_calls><note>noop</note></function_calls>
+<invoke name="exec"><parameter name="command">ls</parameter></invoke>`;
+    const finalMessage = {
+      role: "assistant",
+      content: [{ type: "text", text }],
+    };
+    const baseFn = vi.fn(() =>
+      createFakeStream({
+        events: [],
+        resultMessage: finalMessage,
+      }),
+    );
+
+    const stream = await invokeWrappedStream(baseFn);
+    const result = await stream.result();
+
+    expect((result as { content: unknown[] }).content).toEqual([{ type: "text", text }]);
+  });
+});
+
+describe("shouldNormalizeKimiXmlToolCalls", () => {
+  it("requires anthropic-messages API", () => {
+    expect(
+      shouldNormalizeKimiXmlToolCalls({
+        api: "openai-completions",
+        provider: "kimi-coding",
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts kimi provider aliases", () => {
+    expect(
+      shouldNormalizeKimiXmlToolCalls({
+        api: "anthropic-messages",
+        provider: "kimi-code",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts canonical kimi coding URLs", () => {
+    expect(
+      shouldNormalizeKimiXmlToolCalls({
+        api: "anthropic-messages",
+        baseUrl: "https://api.kimi.com/coding/",
+      }),
+    ).toBe(true);
+    expect(
+      shouldNormalizeKimiXmlToolCalls({
+        api: "anthropic-messages",
+        baseUrl: "https://api.kimi.com/coding",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not match coding-prefixed non-coding paths", () => {
+    expect(
+      shouldNormalizeKimiXmlToolCalls({
+        api: "anthropic-messages",
+        baseUrl: "https://api.kimi.com/coding-v2",
+      }),
+    ).toBe(false);
+  });
+
+  it("uses strict fallback matching for non-URL baseUrl values", () => {
+    expect(
+      shouldNormalizeKimiXmlToolCalls({
+        api: "anthropic-messages",
+        baseUrl: "api.kimi.com/coding/v1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldNormalizeKimiXmlToolCalls({
+        api: "anthropic-messages",
+        baseUrl: "api.kimi.com/coding-v2",
+      }),
+    ).toBe(false);
   });
 });
 

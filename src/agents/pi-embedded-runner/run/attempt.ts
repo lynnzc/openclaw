@@ -471,7 +471,7 @@ function extractKimiXmlToolCallsFromText(text: string):
       toolCalls: Array<{ name: string; arguments: Record<string, string> }>;
     }
   | undefined {
-  if (!KIMI_FUNCTION_CALLS_BLOCK_RE.test(text) || !KIMI_INVOKE_BLOCK_RE.test(text)) {
+  if (!KIMI_FUNCTION_CALLS_BLOCK_RE.test(text)) {
     return undefined;
   }
 
@@ -696,7 +696,7 @@ function wrapStreamFnDecodeXaiToolCallArguments(baseFn: StreamFn): StreamFn {
   };
 }
 
-function shouldNormalizeKimiXmlToolCalls(model: {
+export function shouldNormalizeKimiXmlToolCalls(model: {
   api?: string;
   provider?: string;
   baseUrl?: string;
@@ -714,9 +714,10 @@ function shouldNormalizeKimiXmlToolCalls(model: {
     const parsed = new URL(model.baseUrl);
     const host = parsed.hostname.toLowerCase();
     const pathname = parsed.pathname.toLowerCase();
-    return host.endsWith("kimi.com") && pathname.startsWith("/coding");
+    const isCodingPath = pathname === "/coding" || pathname.startsWith("/coding/");
+    return host.endsWith("kimi.com") && isCodingPath;
   } catch {
-    return model.baseUrl.toLowerCase().includes("kimi.com/coding");
+    return /kimi\.com\/coding(?:\/|$)/i.test(model.baseUrl);
   }
 }
 
