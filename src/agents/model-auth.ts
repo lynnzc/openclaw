@@ -2,6 +2,7 @@ import path from "node:path";
 import { type Api, getEnvApiKey, type Model } from "@mariozechner/pi-ai";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { containsEnvVarReference } from "../config/env-substitution.js";
 import { collectConfigRuntimeEnvVars } from "../config/env-vars.js";
 import type { ModelProviderAuthMode, ModelProviderConfig } from "../config/types.js";
 import { getShellEnvAppliedKeys } from "../infra/shell-env.js";
@@ -18,8 +19,7 @@ import {
   resolveAuthStorePathForDisplay,
 } from "./auth-profiles.js";
 import { PROVIDER_ENV_API_KEY_CANDIDATES } from "./model-auth-env-vars.js";
-import { isNonSecretApiKeyMarker } from "./model-auth-markers.js";
-import { OLLAMA_LOCAL_AUTH_MARKER } from "./model-auth-markers.js";
+import { isNonSecretApiKeyMarker, OLLAMA_LOCAL_AUTH_MARKER } from "./model-auth-markers.js";
 import { normalizeProviderId } from "./model-selection.js";
 
 export { ensureAuthProfileStore, resolveAuthProfileOrder } from "./auth-profiles.js";
@@ -67,7 +67,11 @@ export function getCustomProviderApiKey(
   if (envValue) {
     return envValue;
   }
-  const configEnvValue = normalizeOptionalSecretInput(collectConfigRuntimeEnvVars(cfg)[configured]);
+  const rawConfigEnvValue = collectConfigRuntimeEnvVars(cfg)[configured];
+  if (rawConfigEnvValue && containsEnvVarReference(rawConfigEnvValue)) {
+    return undefined;
+  }
+  const configEnvValue = normalizeOptionalSecretInput(rawConfigEnvValue);
   return configEnvValue;
 }
 

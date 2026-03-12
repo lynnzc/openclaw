@@ -275,6 +275,31 @@ describe("getApiKeyForModel", () => {
     });
   });
 
+  it("ignores unresolved ${VAR} placeholders from config env vars for marker-style api keys", async () => {
+    await withEnvAsync({ OPENROUTER_API_KEY: undefined, VAULT_TOKEN: undefined }, async () => {
+      await expect(
+        resolveApiKeyForProvider({
+          provider: "openrouter",
+          store: { version: 1, profiles: {} },
+          cfg: {
+            env: {
+              vars: {
+                OPENROUTER_API_KEY: "${VAULT_TOKEN}",
+              },
+            },
+            models: {
+              providers: {
+                openrouter: {
+                  apiKey: "OPENROUTER_API_KEY",
+                },
+              },
+            },
+          },
+        }),
+      ).rejects.toThrow('No API key found for provider "openrouter".');
+    });
+  });
+
   it("resolves synthetic local auth key for configured ollama provider without apiKey", async () => {
     await withEnvAsync({ OLLAMA_API_KEY: undefined }, async () => {
       const resolved = await resolveApiKeyForProvider({
