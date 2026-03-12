@@ -249,6 +249,9 @@ export async function uploadFileFeishu(params: {
   const response = await client.im.file.create({
     data: {
       file_type: fileType,
+      // Keep UTF-8 names raw so Feishu recipients see the original filename.
+      // The earlier percent-encoding workaround caused user-visible %XX names.
+      // SDK issue #121 was fixed upstream before @larksuiteoapi/node-sdk@1.59.0.
       file_name: fileName,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK accepts Buffer or ReadStream
       file: fileData as any,
