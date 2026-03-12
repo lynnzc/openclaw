@@ -16,6 +16,9 @@ const ALLOWED_INVALID_GATEWAY_SUBCOMMANDS = new Set([
   "call",
   "install",
   "uninstall",
+  // Keep manual lifecycle steps available for recovery/debug workflows.
+  // `gateway restart` is intentionally excluded so one command cannot stop a
+  // healthy gateway and then fail to come back up on invalid config.
   "start",
   "stop",
 ]);

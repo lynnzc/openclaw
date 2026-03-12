@@ -114,6 +114,15 @@ describe("ensureConfigReady", () => {
     expect(gatewayRuntime.exit).not.toHaveBeenCalled();
   });
 
+  it("does not exit for invalid config on gateway start/stop manual lifecycle commands", async () => {
+    setInvalidSnapshot();
+    const startRuntime = await runEnsureConfigReady(["gateway", "start"]);
+    expect(startRuntime.exit).not.toHaveBeenCalled();
+
+    const stopRuntime = await runEnsureConfigReady(["gateway", "stop"]);
+    expect(stopRuntime.exit).not.toHaveBeenCalled();
+  });
+
   it("exits for invalid config on gateway restart", async () => {
     setInvalidSnapshot();
     const runtime = await runEnsureConfigReady(["gateway", "restart"]);
